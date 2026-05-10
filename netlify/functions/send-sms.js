@@ -1,4 +1,4 @@
-exports.handler = async (event) => {
+export default async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
@@ -31,3 +31,5 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
   }
 };
+
+export const config = { path: '/api/send-sms' };

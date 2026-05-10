@@ -1,8 +1,8 @@
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL      = process.env.VITE_SUPABASE_URL;
-const ANON_KEY          = process.env.VITE_SUPABASE_ANON_KEY;
-const SERVICE_ROLE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_URL     = process.env.VITE_SUPABASE_URL;
+const ANON_KEY         = process.env.VITE_SUPABASE_ANON_KEY;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 async function verifyAdmin(token) {
   const client = createClient(SUPABASE_URL, ANON_KEY, {
@@ -20,7 +20,7 @@ async function verifyAdmin(token) {
   return profile?.role === 'admin' ? user : null;
 }
 
-exports.handler = async (event) => {
+export default async (event) => {
   const token = (event.headers.authorization || '').replace('Bearer ', '');
   if (!token) return { statusCode: 401, body: 'Unauthorized' };
 
