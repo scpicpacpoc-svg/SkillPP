@@ -1,9 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext(null);
-
-const USERS_KEY   = 'skillpp_users';
-const SESSION_KEY = 'skillpp_session';
 
 const ADMIN_EMAILS = ['scpicpacpoc@gmail.com'];
 
@@ -16,70 +14,110 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const session = localStorage.getItem(SESSION_KEY);
-    if (session) {
-      try {
-        setUser(JSON.parse(session));
-      } catch {
-        localStorage.removeItem(SESSION_KEY);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) loadProfile(session.user);
+      else setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (session) await loadProfile(session.user);
+        else { setUser(null); setLoading(false); }
       }
-    }
-    setLoading(false);
+    );
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  function getUsers() {
-    try {
-      return JSON.parse(localStorage.getItem(USERS_KEY)) || [];
-    } catch {
-      return [];
+  async function loadProfile(authUser) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', authUser.id)
+      .single();
+
+    if (profile?.suspended) {
+      await supabase.auth.signOut();
+      setUser(null);
+      setLoading(false);
+      return;
     }
+
+    if (profile) {
+      setUser({
+        id: authUser.id,
+        email: authUser.email,
+        name: profile.name,
+        phone: profile.phone,
+        role: profile.role,
+        plan: profile.plan,
+        suspended: profile.suspended,
+      });
+    }
+    setLoading(false);
   }
 
-  function saveUsers(users) {
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  }
+  async function login(email, password) {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error: 'Email sau parolă incorecte.' };
 
-  function login(email, password) {
-    const users = getUsers();
-    const found = users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-    );
-    if (!found) return { error: 'Email sau parolă incorecte.' };
-    if (found.suspended) return { error: 'Contul tău a fost suspendat. Contactează administratorul.' };
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('suspended')
+      .eq('id', data.user.id)
+      .single();
 
-    const role    = getRole(found.email);
-    const session = { id: found.id, name: found.name, email: found.email, phone: found.phone, role, plan: found.plan || 'Free' };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    setUser(session);
+    if (profile?.suspended) {
+      await supabase.auth.signOut();
+      return { error: 'Contul tău a fost suspendat. Contactează administratorul.' };
+    }
+
     return { success: true };
   }
 
-  function register(name, email, phone, password) {
-    const users = getUsers();
-    if (users.find((u) => u.email.toLowerCase() === email.toLowerCase())) {
-      return { error: 'Există deja un cont cu acest email.' };
+  async function register(name, email, phone, password) {
+    const { data, error } = await supabase.auth.signUp({ email, password });
+
+    if (error) {
+      if (error.message.toLowerCase().includes('already')) {
+        return { error: 'Există deja un cont cu acest email.' };
+      }
+      return { error: error.message };
     }
-    const role    = getRole(email);
-    const newUser = { id: Date.now().toString(), name, email, phone, password, role, plan: 'Free', suspended: false };
-    users.push(newUser);
-    saveUsers(users);
-    const session = { id: newUser.id, name: newUser.name, email: newUser.email, phone: newUser.phone, role, plan: 'Free' };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    setUser(session);
+
+    const role = getRole(email);
+    const { error: profileError } = await supabase.from('profiles').insert({
+      id: data.user.id,
+      name,
+      phone,
+      role,
+      plan: 'Free',
+      suspended: false,
+    });
+
+    if (profileError) return { error: 'Eroare la crearea profilului.' };
     return { success: true };
   }
 
-  function updateStudent(id, changes) {
-    const users = getUsers();
-    const idx = users.findIndex((u) => u.id === id);
-    if (idx === -1) return;
-    users[idx] = { ...users[idx], ...changes };
-    saveUsers(users);
-  }
-
-  function logout() {
-    localStorage.removeItem(SESSION_KEY);
+  async function logout() {
+    await supabase.auth.signOut();
     setUser(null);
+  }
+
+  async function updateStudent(id, changes) {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    const res = await fetch('/.netlify/functions/admin-api', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ userId: id, changes }),
+    });
+
+    if (!res.ok) throw new Error('Update failed');
+    return { success: true };
   }
 
   return (

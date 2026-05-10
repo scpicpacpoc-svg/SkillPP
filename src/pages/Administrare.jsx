@@ -1,42 +1,47 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import './Page.css';
 import './Administrare.css';
 
 const PLANS = ['Free', 'Basic', 'Expert'];
 
 const planStyle = {
-  Free:   { color: '#9A9A9A', bg: 'rgba(154,154,154,0.1)',  border: 'rgba(154,154,154,0.2)' },
-  Basic:  { color: '#60a5fa', bg: 'rgba(96,165,250,0.1)',   border: 'rgba(96,165,250,0.2)'  },
-  Expert: { color: '#C9A84C', bg: 'rgba(201,168,76,0.1)',   border: 'rgba(201,168,76,0.2)'  },
+  Free:   { color: '#9A9A9A', bg: 'rgba(154,154,154,0.1)', border: 'rgba(154,154,154,0.2)' },
+  Basic:  { color: '#60a5fa', bg: 'rgba(96,165,250,0.1)',  border: 'rgba(96,165,250,0.2)'  },
+  Expert: { color: '#C9A84C', bg: 'rgba(201,168,76,0.1)',  border: 'rgba(201,168,76,0.2)'  },
 };
 
-function getStudents() {
-  try {
-    return JSON.parse(localStorage.getItem('skillpp_users')) || [];
-  } catch {
-    return [];
-  }
+async function fetchStudents() {
+  const { data: { session } } = await supabase.auth.getSession();
+  const res = await fetch('/.netlify/functions/admin-api', {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+  if (!res.ok) return [];
+  return res.json();
 }
 
 export default function Administrare() {
   const { updateStudent } = useAuth();
-  const [students, setStudents] = useState(() =>
-    getStudents().filter((u) => u.role !== 'admin')
-  );
-  const [planMenu, setPlanMenu] = useState(null); // id of student with open plan dropdown
+  const [students, setStudents] = useState([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [planMenu, setPlanMenu] = useState(null);
 
-  const refresh = useCallback(() => {
-    setStudents(getStudents().filter((u) => u.role !== 'admin'));
+  const refresh = useCallback(async () => {
+    const data = await fetchStudents();
+    setStudents(data);
+    setLoadingData(false);
   }, []);
 
-  function toggleSuspend(student) {
-    updateStudent(student.id, { suspended: !student.suspended });
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function toggleSuspend(student) {
+    await updateStudent(student.id, { suspended: !student.suspended });
     refresh();
   }
 
-  function changePlan(student, plan) {
-    updateStudent(student.id, { plan });
+  async function changePlan(student, plan) {
+    await updateStudent(student.id, { plan });
     setPlanMenu(null);
     refresh();
   }
@@ -70,7 +75,11 @@ export default function Administrare() {
 
       <div className="section-label">Studenți înregistrați</div>
 
-      {students.length === 0 ? (
+      {loadingData ? (
+        <div className="empty-state">
+          <p>Se încarcă...</p>
+        </div>
+      ) : students.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
@@ -101,8 +110,6 @@ export default function Administrare() {
 
             return (
               <div key={student.id} className={`table-row ${student.suspended ? 'table-row--suspended' : ''}`}>
-
-                {/* Nume */}
                 <div className="student-name">
                   <div className="student-avatar">
                     {student.name?.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2) || 'S'}
@@ -110,17 +117,9 @@ export default function Administrare() {
                   <span>{student.name}</span>
                 </div>
 
-                {/* Email */}
-                <span className="student-email">{student.email}</span>
+                <span className="student-email">{student.phone ? student.phone : '—'}</span>
+                <span className="student-phone">{student.phone || '—'}</span>
 
-                {/* Telefon */}
-                <span className="student-phone">
-                  {student.phone
-                    ? `+40${student.phone.replace(/\D/g, '').replace(/^(40|0)/, '')}`
-                    : '—'}
-                </span>
-
-                {/* Plan dropdown */}
                 <div className="plan-cell">
                   <div className="plan-dropdown-wrap">
                     <button
@@ -155,12 +154,10 @@ export default function Administrare() {
                   </div>
                 </div>
 
-                {/* Status */}
                 <span className={`status-badge ${student.suspended ? 'status-badge--suspended' : 'status-badge--active'}`}>
                   {student.suspended ? 'Suspendat' : 'Activ'}
                 </span>
 
-                {/* Acțiuni */}
                 <button
                   className={`action-btn ${student.suspended ? 'action-btn--activate' : 'action-btn--suspend'}`}
                   onClick={() => toggleSuspend(student)}
