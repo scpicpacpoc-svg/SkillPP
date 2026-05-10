@@ -82,7 +82,7 @@ export default function Login() {
     setError('');
     if (!form.email || !form.password) { setError('Completează toate câmpurile.'); return; }
     setLoading(true);
-    const result = login(form.email, form.password);
+    const result = await login(form.email, form.password);
     setLoading(false);
     if (result.error) setError(result.error);
     else navigate('/cursuri');
